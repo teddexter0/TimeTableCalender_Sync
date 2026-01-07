@@ -41,29 +41,5 @@ export async function GET(req: NextRequest) {
     console.error('Payment callback error:', error);
     return NextResponse.redirect(new URL('/payment/error', req.url));
   }
-}
-```
-
-### **9. `firestore.rules` (Database Security)**
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Users can only read/write their own data
-    match /users/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Timetables - users can only access their own
-    match /timetables/{userId}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    
-    // Payments - read only for user, write only from backend
-    match /payments/{paymentId} {
-      allow read: if request.auth != null;
-      allow write: if false; // Only backend can write
-    }
-  }
-}
+} 
+ 

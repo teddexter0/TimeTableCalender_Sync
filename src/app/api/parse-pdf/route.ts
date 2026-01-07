@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseClassTimetable, parseExamTimetable } from '@/lib/pdf-parser';
+import { parseClassTimetable, parseExamTimetable } from '@/lib/pdf-parse';
 import { rateLimit } from '@/lib/security';
 
 export async function POST(req: NextRequest) {
