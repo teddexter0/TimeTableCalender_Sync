@@ -1,20 +1,40 @@
 import pdfParse from 'pdf-parse';
 
+interface ClassEvent {
+  day: string;
+  startTime: string;
+  endTime: string;
+  courseCode: string;
+  subject: string;
+  lecturer: string;
+  venue: string;
+}
+
+interface ExamEvent {
+  courseCode: string;
+  subject: string;
+  examDate: string;
+  examTime: string;
+  endTime: string;
+  invigilator: string;
+  venue: string;
+}
+
 export async function parseClassTimetable(
   pdfBuffer: Buffer,
   courseCodes: string[],
   studentGroup: string
-) {
+): Promise<ClassEvent[]> {
   const data = await pdfParse(pdfBuffer);
   const text = data.text;
   
-  const events = [];
-  const lines = text.split('\n').filter(line => line.trim());
+  const events: ClassEvent[] = [];
+  const lines = text.split('\n').filter((line: string) => line.trim());
   
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
   const timePattern = /(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/;
   
-  let currentDay = null;
+  let currentDay: string | null = null;
   
   for (const line of lines) {
     // Detect day
@@ -25,7 +45,7 @@ export async function parseClassTimetable(
     }
     
     // Check for user's course codes
-    const foundCode = courseCodes.find(code => 
+    const foundCode = courseCodes.find((code: string) => 
       line.toUpperCase().includes(code.toUpperCase())
     );
     
@@ -41,7 +61,7 @@ export async function parseClassTimetable(
         
         // Extract subject name (longest non-code text)
         const parts = line.split(/\s{2,}/);
-        const subject = parts.find(p => 
+        const subject = parts.find((p: string) => 
           p.length > 10 && 
           !timePattern.test(p) && 
           !p.includes(foundCode)
@@ -67,18 +87,18 @@ export async function parseExamTimetable(
   pdfBuffer: Buffer,
   courseCodes: string[],
   studentGroup: string
-) {
+): Promise<ExamEvent[]> {
   const data = await pdfParse(pdfBuffer);
   const text = data.text;
   
-  const events = [];
-  const lines = text.split('\n').filter(line => line.trim());
+  const events: ExamEvent[] = [];
+  const lines = text.split('\n').filter((line: string) => line.trim());
   
   const datePattern = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s*(\d{1,2})[a-z]{2}\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})/i;
   const timePattern = /(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})/;
   
   const groupNorm = studentGroup.replace(/\s+/g, '').toUpperCase();
-  let currentDate = null;
+  let currentDate: string | null = null;
   
   for (const line of lines) {
     // Detect date
@@ -95,7 +115,7 @@ export async function parseExamTimetable(
     }
     
     // Check for course code
-    const foundCode = courseCodes.find(code => 
+    const foundCode = courseCodes.find((code: string) => 
       line.toUpperCase().includes(code.toUpperCase())
     );
     
@@ -109,7 +129,7 @@ export async function parseExamTimetable(
         'AUG25' + groupNorm.replace('BBIT', ''),
       ];
       
-      const groupMatches = groupVariations.some(v => lineNorm.includes(v));
+      const groupMatches = groupVariations.some((v: string) => lineNorm.includes(v));
       
       if (groupMatches) {
         const timeMatch = line.match(timePattern);
