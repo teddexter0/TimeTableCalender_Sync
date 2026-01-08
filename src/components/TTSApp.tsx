@@ -2,17 +2,10 @@
 
 import React, { useState } from 'react';
 import { Upload, Calendar, Bell, DollarSign, CheckCircle, AlertCircle } from 'lucide-react';
-type TimetableEvent = {
-  day: string;
-  time: string;
-  course: string;
-  subject: string;
-  venue: string;
-  lecturer?: string;
-};
+import { TimetableEvent, formatTimeRange } from '@/types/timetable';
 
 export default function TTSApp() {
-  const [step, setStep] = useState('landing'); // landing, upload, preview, payment, success
+  const [step, setStep] = useState('landing');
   const [file, setFile] = useState<File | null>(null);
   const [events, setEvents] = useState<TimetableEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -20,14 +13,11 @@ export default function TTSApp() {
   const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
 
-  // Mock PDF parsing (replace with real API call)
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-
     const files = e.target.files;
-if (!files || files.length === 0) return;
+    if (!files || files.length === 0) return;
 
-const uploadedFile = files[0];
-
+    const uploadedFile = files[0];
     if (!uploadedFile) return;
     
     setFile(uploadedFile);
@@ -36,32 +26,112 @@ const uploadedFile = files[0];
     
     // Simulate AI parsing delay
     setTimeout(() => {
-      // Mock parsed events
+      // Mock parsed events with CORRECT structure
       setEvents([
-        { day: 'Monday', time: '08:00-10:00', course: 'BBIT 2101', subject: 'Database Systems', venue: 'MSB 8', lecturer: 'Dr. Kamau' },
-        { day: 'Monday', time: '14:00-16:00', course: 'BBIT 2102', subject: 'Web Development', venue: 'STM F2-01', lecturer: 'Prof. Wanjiru' },
-        { day: 'Tuesday', time: '10:00-12:00', course: 'BBIT 2103', subject: 'Data Structures', venue: 'MSB 10', lecturer: 'Dr. Omondi' },
-        { day: 'Wednesday', time: '08:00-10:00', course: 'BBIT 2104', subject: 'Computer Networks', venue: 'STM B-12', lecturer: 'Mr. Kipchoge' },
-        { day: 'Thursday', time: '14:00-16:00', course: 'BBIT 2105', subject: 'Software Engineering', venue: 'MSB 8', lecturer: 'Dr. Kamau' },
-        { day: 'Friday', time: '10:00-12:00', course: 'BBIT 2106', subject: 'Business Statistics', venue: 'SBS 5', lecturer: 'Prof. Adhiambo' },
+        { 
+          day: 'Monday', 
+          startTime: '08:00', 
+          endTime: '10:00', 
+          courseCode: 'BBIT 2101', 
+          subject: 'Database Systems', 
+          venue: 'MSB 8', 
+          lecturer: 'Dr. Kamau' 
+        },
+        { 
+          day: 'Monday', 
+          startTime: '14:00', 
+          endTime: '16:00', 
+          courseCode: 'BBIT 2102', 
+          subject: 'Web Development', 
+          venue: 'STM F2-01', 
+          lecturer: 'Prof. Wanjiru' 
+        },
+        { 
+          day: 'Tuesday', 
+          startTime: '10:00', 
+          endTime: '12:00', 
+          courseCode: 'BBIT 2103', 
+          subject: 'Data Structures', 
+          venue: 'MSB 10', 
+          lecturer: 'Dr. Omondi' 
+        },
+        { 
+          day: 'Wednesday', 
+          startTime: '08:00', 
+          endTime: '10:00', 
+          courseCode: 'BBIT 2104', 
+          subject: 'Computer Networks', 
+          venue: 'STM B-12', 
+          lecturer: 'Mr. Kipchoge' 
+        },
+        { 
+          day: 'Thursday', 
+          startTime: '14:00', 
+          endTime: '16:00', 
+          courseCode: 'BBIT 2105', 
+          subject: 'Software Engineering', 
+          venue: 'MSB 8', 
+          lecturer: 'Dr. Kamau' 
+        },
+        { 
+          day: 'Friday', 
+          startTime: '10:00', 
+          endTime: '12:00', 
+          courseCode: 'BBIT 2106', 
+          subject: 'Business Statistics', 
+          venue: 'SBS 5', 
+          lecturer: 'Prof. Adhiambo' 
+        },
       ]);
       setLoading(false);
       setStep('preview');
     }, 2000);
   };
 
-  const handlePayment = () => {
+  const handlePayment = async () => {
     if (!email || !phone) {
       setError('Please enter your email and phone number');
       return;
     }
     
-    // Mock payment redirect (replace with real Pesapal)
     setLoading(true);
+    
+    // Save events to localStorage for success page
+    localStorage.setItem('tts_events', JSON.stringify(events));
+    localStorage.setItem('tts_email', email);
+    
+    // Mock payment redirect (replace with real Pesapal)
     setTimeout(() => {
       setLoading(false);
       setStep('success');
     }, 1500);
+  };
+
+  const handleDownloadCalendar = async () => {
+    try {
+      const response = await fetch('/api/sync-calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          events: events,
+          email: email,
+          semesterStart: '2025-01-13' // First Monday of semester
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to generate calendar');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'timetable.ics';
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Calendar download error:', error);
+      alert('Failed to download calendar');
+    }
   };
 
   return (
@@ -70,7 +140,6 @@ const uploadedFile = files[0];
       {step === 'landing' && (
         <div className="flex min-h-screen flex-col items-center justify-center px-6">
           <div className="max-w-4xl w-full space-y-12">
-            {/* Hero */}
             <div className="text-center space-y-6">
               <div className="inline-flex items-center gap-3 rounded-full bg-emerald-100 px-6 py-3 text-emerald-900">
                 <Calendar className="w-5 h-5" />
@@ -88,7 +157,6 @@ const uploadedFile = files[0];
               </p>
             </div>
 
-            {/* CTA */}
             <div className="text-center space-y-4">
               <button
                 onClick={() => setStep('upload')}
@@ -103,7 +171,6 @@ const uploadedFile = files[0];
               </p>
             </div>
 
-            {/* Features */}
             <div className="grid md:grid-cols-3 gap-6 pt-8">
               {[
                 { icon: Upload, title: 'Upload PDF', desc: 'Any format, any university' },
@@ -118,7 +185,6 @@ const uploadedFile = files[0];
               ))}
             </div>
 
-            {/* Social Proof */}
             <div className="text-center pt-8 border-t border-gray-200">
               <div className="flex items-center justify-center gap-3 text-gray-600">
                 <div className="flex -space-x-2">
@@ -199,11 +265,11 @@ const uploadedFile = files[0];
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-emerald-600">{event.day}</span>
                           <span className="text-gray-500">•</span>
-                          <span className="text-gray-700">{event.time}</span>
+                          <span className="text-gray-700">{formatTimeRange(event)}</span>
                         </div>
                         <h3 className="font-bold text-gray-900">{event.subject}</h3>
                         <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span>📚 {event.course}</span>
+                          <span>📚 {event.courseCode}</span>
                           <span>📍 {event.venue}</span>
                           {event.lecturer && <span>👨‍🏫 {event.lecturer}</span>}
                         </div>
@@ -277,10 +343,18 @@ const uploadedFile = files[0];
                 <h3 className="font-bold text-emerald-900">What's Next?</h3>
                 <ul className="text-left text-sm text-emerald-800 space-y-2">
                   <li>✅ Check your email ({email}) for confirmation</li>
-                  <li>✅ Add events to Google Calendar (link in email)</li>
+                  <li>✅ Add events to Google Calendar (click below)</li>
                   <li>✅ First reminder arrives before your next class</li>
                 </ul>
               </div>
+
+              <button
+                onClick={handleDownloadCalendar}
+                className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-4 rounded-xl hover:bg-blue-700 transition font-semibold"
+              >
+                <Calendar className="w-5 h-5" />
+                Download Google Calendar File
+              </button>
 
               <div className="pt-4 space-y-3">
                 <button
@@ -290,6 +364,8 @@ const uploadedFile = files[0];
                     setEvents([]);
                     setEmail('');
                     setPhone('');
+                    localStorage.removeItem('tts_events');
+                    localStorage.removeItem('tts_email');
                   }}
                   className="text-emerald-600 hover:text-emerald-700 font-medium"
                 >
