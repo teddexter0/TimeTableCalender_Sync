@@ -398,6 +398,128 @@ Costs per student:
 
 ---
 
+
+## PESAPAL RECURRING SETUP:
+
+1. User pays 150 KES first time
+2. PesaPal creates subscription
+3. Auto-charges every 4 months
+4. If payment fails → disable calendar sync
+5. Student re-enables by paying again
+
+# REFUND POLICY:
+- 7-day window after payment
+- Auto-approved if sync fails (logged)
+- Manual review if user claims timetable wrong
+
+# MARGINS:
+Revenue: 150 KES
+- OpenAI parsing: 1 KES
+- Google API: 0 KES (free tier)
+- Firebase: 2 KES
+- PesaPal fees (3.5%): 5 KES
+────────────────
+Profit: 142 KES (95%)
+
+At 300 students:
+300 × 142 = 42,600 KES profit/semester
+= ~10,650 KES/month passive income
+
+## Next steps
+
+1. Set up Google Cloud Project
+   - Enable Calendar API
+   - Create OAuth credentials
+   - Add redirect URIs
+
+2. Set up PesaPal
+   - Get API keys
+   - Configure webhooks
+   - Test M-Pesa flow
+
+3. Implement remaining routes:
+   - /api/payment/initiate
+   - /api/payment/callback
+   - /dashboard
+
+4. Test end-to-end:
+   - Google OAuth
+   - Timetable upload
+   - Payment
+   - Calendar sync
+
+5. Deploy to Vercel
+   - Add environment variables
+   - Test webhooks
+   - Monitor logs
+
+
+
+   # TTS PRODUCTION - FOLDER STRUCTURE
+
+```
+tts-production/
+├── .env.local                    # ✅ Keep (environment variables)
+├── .gitignore                    # ✅ Keep
+├── package.json                  # ✅ Keep
+├── package-lock.json             # ✅ Keep
+├── tsconfig.json                 # ✅ Keep
+├── next.config.js                # ✅ Keep
+├── postcss.config.js             # ✅ Keep (or .mjs)
+├── tailwind.config.ts            # ✅ Keep (FIXED version)
+├── README.md                     # ✅ Keep (your documentation)
+│
+├── public/                       # ❌ DELETE svgs (keep favicon only)
+│   ├── favicon.ico              # ✅ Keep
+│   └── (delete all .svg files)  # ❌ DELETE file.svg, globe.svg, etc.
+│
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx           # ✅ Keep
+│   │   ├── page.tsx             # ✅ Keep
+│   │   ├── globals.css          # ✅ Keep
+│   │   │
+│   │   ├── api/
+│   │   │   ├── auth/
+│   │   │   │   ├── google/
+│   │   │   │   │   └── route.ts         # 🆕 NEW (Google OAuth start)
+│   │   │   │   └── callback/
+│   │   │   │       └── route.ts         # 🆕 NEW (OAuth callback)
+│   │   │   │
+│   │   │   ├── parse-timetable/
+│   │   │   │   └── route.ts             # 🆕 NEW (OpenAI parsing)
+│   │   │   │
+│   │   │   ├── sync-calendar/
+│   │   │   │   └── route.ts             # ✅ Already exists (updated)
+│   │   │   │
+│   │   │   └── payment/
+│   │   │       ├── initiate/
+│   │   │       │   └── route.ts         # ✅ Already exists
+│   │   │       └── callback/
+│   │   │           └── route.ts         # ✅ Already exists
+│   │   │
+│   │   ├── dashboard/
+│   │   │   └── page.tsx                 # 🆕 NEW (user dashboard)
+│   │   │
+│   │   └── success/                     # ❌ DELETE (not needed)
+│   │
+│   ├── components/
+│   │   └── TTSApp.tsx                   # ✅ Keep (FIXED version)
+│   │
+│   ├── lib/
+│   │   ├── firebase.ts                  # ✅ Keep
+│   │   ├── firebase-admin.ts            # ✅ Keep
+│   │   ├── google-calendar.ts           # 🆕 NEW (Calendar API)
+│   │   ├── pesapal.ts                   # ✅ Keep
+│   │   └── security.ts                  # ✅ Keep
+│   │
+│   └── types/
+│       └── timetable.ts                 # 🆕 NEW (type definitions)
+│
+└── (other config files)
+
+```
+
 ## 🎯 Conclusion
 
 **This is a simple product with complex execution:**
