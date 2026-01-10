@@ -1,7 +1,6 @@
 import axios from 'axios';
-import crypto from 'crypto';
 
-const PESAPAL_BASE_URL = 'https://pay.pesapal.com/v3';
+const PESAPAL_BASE_URL = 'https://cybqa.pesapal.com/pesapalv3'; // Sandbox URL
 
 export async function getAccessToken() {
   const response = await axios.post(`${PESAPAL_BASE_URL}/api/Auth/RequestToken`, {
@@ -22,20 +21,27 @@ export async function initiatePayment(data: {
   
   const orderTrackingId = `TTS-${data.userId}-${Date.now()}`;
   
+  // Build request body (IPN ID is optional)
+  const requestBody: any = {
+    id: orderTrackingId,
+    currency: 'KES',
+    amount: data.amount,
+    description: 'Timetable Sync - Semester Subscription',
+    callback_url: process.env.PESAPAL_CALLBACK_URL,
+    billing_address: {
+      email_address: data.email,
+      phone_number: data.phone,
+    },
+  };
+  
+  // Only add notification_id if it exists in env
+  if (process.env.PESAPAL_IPN_ID && process.env.PESAPAL_IPN_ID !== 'your_ipn_id') {
+    requestBody.notification_id = process.env.PESAPAL_IPN_ID;
+  }
+  
   const response = await axios.post(
     `${PESAPAL_BASE_URL}/api/Transactions/SubmitOrderRequest`,
-    {
-      id: orderTrackingId,
-      currency: 'KES',
-      amount: data.amount,
-      description: 'Timetable Sync - Semester Subscription',
-      callback_url: process.env.PESAPAL_CALLBACK_URL,
-      notification_id: process.env.PESAPAL_IPN_ID,
-      billing_address: {
-        email_address: data.email,
-        phone_number: data.phone,
-      },
-    },
+    requestBody,
     {
       headers: {
         Authorization: `Bearer ${token}`,

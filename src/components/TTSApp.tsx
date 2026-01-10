@@ -18,74 +18,35 @@ export default function TTSApp() {
     if (!files || files.length === 0) return;
 
     const uploadedFile = files[0];
-    if (!uploadedFile) return;
-    
     setFile(uploadedFile);
     setLoading(true);
     setError('');
     
-    // Simulate AI parsing delay
-    setTimeout(() => {
-      // Mock parsed events with CORRECT structure
-      setEvents([
-        { 
-          day: 'Monday', 
-          startTime: '08:00', 
-          endTime: '10:00', 
-          courseCode: 'BBIT 2101', 
-          subject: 'Database Systems', 
-          venue: 'MSB 8', 
-          lecturer: 'Dr. Kamau' 
-        },
-        { 
-          day: 'Monday', 
-          startTime: '14:00', 
-          endTime: '16:00', 
-          courseCode: 'BBIT 2102', 
-          subject: 'Web Development', 
-          venue: 'STM F2-01', 
-          lecturer: 'Prof. Wanjiru' 
-        },
-        { 
-          day: 'Tuesday', 
-          startTime: '10:00', 
-          endTime: '12:00', 
-          courseCode: 'BBIT 2103', 
-          subject: 'Data Structures', 
-          venue: 'MSB 10', 
-          lecturer: 'Dr. Omondi' 
-        },
-        { 
-          day: 'Wednesday', 
-          startTime: '08:00', 
-          endTime: '10:00', 
-          courseCode: 'BBIT 2104', 
-          subject: 'Computer Networks', 
-          venue: 'STM B-12', 
-          lecturer: 'Mr. Kipchoge' 
-        },
-        { 
-          day: 'Thursday', 
-          startTime: '14:00', 
-          endTime: '16:00', 
-          courseCode: 'BBIT 2105', 
-          subject: 'Software Engineering', 
-          venue: 'MSB 8', 
-          lecturer: 'Dr. Kamau' 
-        },
-        { 
-          day: 'Friday', 
-          startTime: '10:00', 
-          endTime: '12:00', 
-          courseCode: 'BBIT 2106', 
-          subject: 'Business Statistics', 
-          venue: 'SBS 5', 
-          lecturer: 'Prof. Adhiambo' 
-        },
-      ]);
-      setLoading(false);
+    try {
+      // 🔥 REAL API CALL - Changed to correct endpoint
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+      
+      const response = await fetch('/api/parse-timetable', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Parsing failed');
+      }
+      
+      const data = await response.json();
+      setEvents(data.events);
       setStep('preview');
-    }, 2000);
+      
+    } catch (err: any) {
+      setError(err.message || 'Failed to parse timetable. Please try again.');
+      console.error('Upload error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handlePayment = async () => {
@@ -95,42 +56,38 @@ export default function TTSApp() {
     }
     
     setLoading(true);
+    setError('');
     
-    // Save events to localStorage for success page
-    localStorage.setItem('tts_events', JSON.stringify(events));
-    localStorage.setItem('tts_email', email);
-    
-    // Mock payment redirect (replace with real Pesapal)
-    setTimeout(() => {
-      setLoading(false);
-      setStep('success');
-    }, 1500);
-  };
-
-  const handleDownloadCalendar = async () => {
     try {
-      const response = await fetch('/api/sync-calendar', {
+      // 🔥 REAL PESAPAL INTEGRATION
+      const response = await fetch('/api/payment/initiate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          events: events,
+          userId: Date.now().toString(), // Generate temporary user ID
           email: email,
-          semesterStart: '2025-01-13' // First Monday of semester
-        })
+          phone: phone.replace(/\s/g, ''), // Remove spaces from phone
+        }),
       });
-
-      if (!response.ok) throw new Error('Failed to generate calendar');
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'timetable.ics';
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Calendar download error:', error);
-      alert('Failed to download calendar');
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Payment initiation failed');
+      }
+      
+      const data = await response.json();
+      
+      // Save events before redirecting
+      localStorage.setItem('tts_events', JSON.stringify(events));
+      localStorage.setItem('tts_email', email);
+      
+      // Redirect to PesaPal
+      window.location.href = data.redirectUrl;
+      
+    } catch (err: any) {
+      setError(err.message || 'Payment failed. Please try again.');
+      console.error('Payment error:', err);
+      setLoading(false);
     }
   };
 
@@ -235,6 +192,13 @@ export default function TTSApp() {
                   <p className="mt-2 text-gray-600">Reading your timetable with AI...</p>
                 </div>
               )}
+
+              {error && (
+                <div className="flex items-center gap-2 text-red-600 bg-red-50 px-4 py-3 rounded-xl">
+                  <AlertCircle className="w-5 h-5" />
+                  <span className="text-sm">{error}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -314,69 +278,11 @@ export default function TTSApp() {
                   </button>
 
                   <p className="text-xs text-center text-gray-500">
-                    By continuing, you agree to receive email reminders for your classes.
+                    Paying with M-Pesa via PesaPal (Secure)
                   </p>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* SUCCESS PAGE */}
-      {step === 'success' && (
-        <div className="min-h-screen flex items-center justify-center px-6">
-          <div className="max-w-2xl w-full text-center space-y-8">
-            <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-12 space-y-6">
-              <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
-                <CheckCircle className="w-12 h-12 text-emerald-600" />
-              </div>
-
-              <div className="space-y-3">
-                <h2 className="text-4xl font-bold text-gray-900">You're All Set! 🎉</h2>
-                <p className="text-lg text-gray-600">
-                  You'll receive email reminders 30 minutes before every class
-                </p>
-              </div>
-
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-6 space-y-3">
-                <h3 className="font-bold text-emerald-900">What's Next?</h3>
-                <ul className="text-left text-sm text-emerald-800 space-y-2">
-                  <li>✅ Check your email ({email}) for confirmation</li>
-                  <li>✅ Add events to Google Calendar (click below)</li>
-                  <li>✅ First reminder arrives before your next class</li>
-                </ul>
-              </div>
-
-              <button
-                onClick={handleDownloadCalendar}
-                className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white px-6 py-4 rounded-xl hover:bg-blue-700 transition font-semibold"
-              >
-                <Calendar className="w-5 h-5" />
-                Download Google Calendar File
-              </button>
-
-              <div className="pt-4 space-y-3">
-                <button
-                  onClick={() => {
-                    setStep('landing');
-                    setFile(null);
-                    setEvents([]);
-                    setEmail('');
-                    setPhone('');
-                    localStorage.removeItem('tts_events');
-                    localStorage.removeItem('tts_email');
-                  }}
-                  className="text-emerald-600 hover:text-emerald-700 font-medium"
-                >
-                  ← Back to Home
-                </button>
-              </div>
-            </div>
-
-            <p className="text-sm text-gray-500">
-              Questions? Email support@timetablesync.co.ke
-            </p>
           </div>
         </div>
       )}
