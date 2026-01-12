@@ -1,3 +1,6 @@
+// src/components/TTSApp.tsx
+// 🔥 UPDATED: Phone number is now OPTIONAL
+
 "use client";
 
 import React, { useState } from 'react';
@@ -23,7 +26,6 @@ export default function TTSApp() {
     setError('');
     
     try {
-      // 🔥 REAL API CALL - Changed to correct endpoint
       const formData = new FormData();
       formData.append('file', uploadedFile);
       
@@ -38,6 +40,10 @@ export default function TTSApp() {
       }
       
       const data = await response.json();
+      
+      console.log('✅ Parsed successfully:', data);
+      console.log('Sample event:', data.events[0]);
+      
       setEvents(data.events);
       setStep('preview');
       
@@ -50,8 +56,9 @@ export default function TTSApp() {
   };
 
   const handlePayment = async () => {
-    if (!email || !phone) {
-      setError('Please enter your email and phone number');
+    // ✅ ONLY EMAIL IS REQUIRED NOW
+    if (!email) {
+      setError('Please enter your email');
       return;
     }
     
@@ -59,14 +66,13 @@ export default function TTSApp() {
     setError('');
     
     try {
-      // 🔥 REAL PESAPAL INTEGRATION
       const response = await fetch('/api/payment/initiate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: Date.now().toString(), // Generate temporary user ID
+          userId: Date.now().toString(),
           email: email,
-          phone: phone.replace(/\s/g, ''), // Remove spaces from phone
+          phone: phone || '254700000000', // Default if not provided
         }),
       });
       
@@ -248,15 +254,16 @@ export default function TTSApp() {
                 <div className="space-y-4">
                   <input
                     type="email"
-                    placeholder="Your email (for reminders)"
+                    placeholder="Your email (required for reminders)"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    required
                   />
                   
                   <input
                     type="tel"
-                    placeholder="Phone: 254712345678"
+                    placeholder="Phone: 254712345678 (optional)"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-emerald-500"
@@ -271,7 +278,7 @@ export default function TTSApp() {
 
                   <button
                     onClick={handlePayment}
-                    disabled={loading}
+                    disabled={loading || !email}
                     className="w-full bg-emerald-600 text-white py-4 rounded-xl font-semibold hover:bg-emerald-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {loading ? 'Processing...' : 'Continue to Payment (150 KSH)'}
