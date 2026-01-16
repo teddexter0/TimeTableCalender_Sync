@@ -153,11 +153,13 @@ Return ONLY JSON array.`;
 // 🛡️ PHASE 3: DEFENSIVE NORMALIZATION (Catch what AI missed)
 function defensiveNormalization(events: ParsedEvent[]): ParsedEvent[] {
   return events.map(event => {
-    // Fix STM-8 → STM-B (OCR error)
+    // Fix STM-B → STM-B (OCR error)
     if (event.venue) {
       event.venue = event.venue
         .replace(/\bSTM-8\b/gi, 'STM-B')
         .replace(/\bSTM 8\b/gi, 'STM-B')
+        .replace(/\bS3A-B\b/gi, 'STM-B')  // Common OCR error
+        .replace(/\bSTA-8\b/gi, 'STM-B')  // Another variant
         .replace(/\bBBS\b/gi, 'SBS'); // Another common OCR error
     }
 
@@ -167,8 +169,11 @@ function defensiveNormalization(events: ParsedEvent[]): ParsedEvent[] {
         .replace(/Iosios/gi, 'iOS')
         .replace(/LadPro/gi, 'Ladies Program')
         .replace(/Meshanje/gi, 'Machanje')
+        .replace(/Mwshanje/gi, 'Machanje')  // Another variant
         .replace(/Kavagira/gi, 'Kavugira')
+        .replace(/Kavagata/gi, 'Kavugira')  // Another variant
         .replace(/Maguiri/gi, 'Maigari')
+        .replace(/Kiangi/gi, 'Maigari')     // Another variant
         .replace(/Ochiboho/gi, 'Oshisanya');
     }
 
@@ -176,8 +181,11 @@ function defensiveNormalization(events: ParsedEvent[]): ParsedEvent[] {
     if (event.lecturer) {
       event.lecturer = event.lecturer
         .replace(/Meshanje/gi, 'Machanje')
+        .replace(/Mwshanje/gi, 'Machanje')  // Another variant
         .replace(/Kavagira/gi, 'Kavugira')
+        .replace(/Kavagata/gi, 'Kavugira')  // Another variant
         .replace(/Maguiri/gi, 'Maigari')
+        .replace(/Kiangi/gi, 'Maigari')     // Another variant
         .replace(/Ochiboho/gi, 'Oshisanya');
     }
 
@@ -195,7 +203,7 @@ function defensiveNormalization(events: ParsedEvent[]): ParsedEvent[] {
   });
 }
 
-// 🔗 PHASE 4: CONFLICT RESOLUTION
+// 🔗 PHASE 4: CONFLICT RESOLUTION (Less aggressive)
 function resolveConflicts(events: ParsedEvent[]): ParsedEvent[] {
   // Sort by day and time
   const sorted = events.sort((a, b) => {
@@ -210,57 +218,44 @@ function resolveConflicts(events: ParsedEvent[]): ParsedEvent[] {
   for (let i = 0; i < sorted.length; i++) {
     const current = sorted[i];
     
-    // Filter out SPORTS/CLUBS
-    if (current.subject?.toUpperCase().includes('SPORTS') || 
-        current.subject?.toUpperCase().includes('CLUBS')) {
-      console.log(`🗑️  Filtered: ${current.subject}`);
+    // Filter out SPORTS/CLUBS and entries with no subject
+    if (!current.subject || 
+        current.subject.toUpperCase().includes('SPORTS') || 
+        current.subject.toUpperCase().includes('CLUBS')) {
+      console.log(`🗑️  Filtered: ${current.subject || 'Empty subject'}`);
       continue;
     }
 
-    // Check if this overlaps with previous event
+    // Check if this can be merged with previous event
     if (resolved.length > 0) {
       const prev = resolved[resolved.length - 1];
       
-      // Same day + overlapping times
+      // ONLY merge if SAME subject + SAME day + times are adjacent/overlapping
       if (prev.day === current.day && 
-          current.startTime < prev.endTime) {
+          prev.subject && current.subject &&
+          prev.subject.toLowerCase().trim() === current.subject.toLowerCase().trim() &&
+          current.startTime <= prev.endTime) {
         
-        // Same subject → merge
-        if (prev.subject.toLowerCase() === current.subject.toLowerCase()) {
-          console.log(`🔗 Merging: ${current.subject} ${prev.startTime}-${prev.endTime} + ${current.startTime}-${current.endTime}`);
-          
-          // Extend previous event's end time
-          prev.endTime = current.endTime > prev.endTime ? current.endTime : prev.endTime;
-          
-          // Update course code if current has one and prev doesn't
-          if (current.courseCode && !prev.courseCode) {
-            prev.courseCode = current.courseCode;
-          }
-          
-          // If venues differ, show both
-          if (current.venue && prev.venue && current.venue !== prev.venue) {
-            prev.venue = `${prev.venue} / ${current.venue}`;
-          }
-          
-          continue; // Skip adding current
+        console.log(`🔗 Merging: ${current.subject} ${prev.startTime}-${prev.endTime} + ${current.startTime}-${current.endTime}`);
+        
+        // Extend previous event's end time
+        prev.endTime = current.endTime > prev.endTime ? current.endTime : prev.endTime;
+        
+        // Update course code if current has one and prev doesn't
+        if (current.courseCode && !prev.courseCode) {
+          prev.courseCode = current.courseCode;
         }
-        // Different subjects overlapping → keep the one with more info
-        else {
-          const prevScore = (prev.courseCode ? 1 : 0) + (prev.venue ? 1 : 0) + (prev.lecturer ? 1 : 0);
-          const currScore = (current.courseCode ? 1 : 0) + (current.venue ? 1 : 0) + (current.lecturer ? 1 : 0);
-          
-          if (currScore > prevScore) {
-            console.log(`⚠️  Conflict: Replacing ${prev.subject} with ${current.subject} (better data)`);
-            resolved[resolved.length - 1] = current;
-            continue;
-          } else {
-            console.log(`⚠️  Conflict: Keeping ${prev.subject}, skipping ${current.subject}`);
-            continue;
-          }
+        
+        // If venues differ, show both
+        if (current.venue && prev.venue && current.venue !== prev.venue) {
+          prev.venue = `${prev.venue} / ${current.venue}`;
         }
+        
+        continue; // Skip adding current
       }
     }
     
+    // If we got here, it's a unique class - add it
     resolved.push(current);
   }
 
