@@ -70,16 +70,31 @@ export async function GET(req: NextRequest) {
         if (!userData.timetable || userData.timetable.length === 0) {
           throw new Error('No timetable events found');
         }
+
+        // Timetables saved by the retired lecturer-based parser are not safe to
+        // auto-sync. The current UI asks the user to review and sync them instead.
+        if (!userData.timetable.every((event: any) => event.courseUnit && event.matchedGroupLabel)) {
+          console.warn('Skipping automatic sync for legacy unverified timetable data.');
+          return NextResponse.redirect(new URL('/?payment=completed', req.url));
+        }
         
         console.log('🔄 Syncing to Google Calendar...');
         
         // Default semester start (you can make this dynamic later)
-        const semesterStart = new Date().toISOString().split('T')[0]; // Today
+        const semesterStart = userData.semesterStart || new Date().toISOString().split('T')[0];
+        const semesterEnd = userData.semesterEnd || expiryDate.toISOString().split('T')[0];
+        const documentType = userData.documentType === 'cat'
+          ? 'cat'
+          : userData.documentType === 'exam' || userData.documentType === 'exam_cat'
+            ? 'exam'
+            : 'class';
         
         const { success, eventIds } = await syncToGoogleCalendar(
           userData.googleAccessToken,
           userData.timetable,
-          semesterStart
+          semesterStart,
+          documentType,
+          semesterEnd,
         );
         
         if (!success) {

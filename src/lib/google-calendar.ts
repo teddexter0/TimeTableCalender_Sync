@@ -1,108 +1,135 @@
-// src/lib/google-calendar.ts
-import { google } from 'googleapis';
-import { TimetableEvent } from '@/types/timetable';
+import crypto from 'crypto';
+import { calendar_v3, google } from 'googleapis';
+import { DocumentType, TimetableEvent } from '@/types/timetable';
+import { firstOccurrenceForDay, NAIROBI_TIME_ZONE, reminderMinutes } from '@/lib/timetable-rules';
+
+interface SyncOptions {
+  documentType?: DocumentType;
+  semesterStart?: string;
+  semesterEnd?: string;
+}
+
+function shiftTime(date: string, time: string, minutes: number): string {
+  const [hours, mins] = time.split(':').map(Number);
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCMinutes(hours * 60 + mins + minutes);
+  return `${value.toISOString().slice(0, 10)}T${value.toISOString().slice(11, 19)}`;
+}
+
+function eventDate(event: TimetableEvent, semesterStart?: string): string {
+  if (event.date) return event.date;
+  if (!event.day || !semesterStart) throw new Error(`A semester start date is required for ${event.courseUnit}.`);
+  return firstOccurrenceForDay(semesterStart, event.day);
+}
+
+function eventIdentity(event: TimetableEvent, documentType: DocumentType): string {
+  const courseCode = event.courseUnit.match(/\b[A-Z]{2,6}\s*\d{3,5}[A-Z]?\b/i)?.[0]?.replace(/\s+/g, '').toUpperCase();
+  const identityType = documentType === 'class' ? 'class' : 'assessment';
+  return [identityType, courseCode || event.courseUnit.trim().toUpperCase(), event.date, event.day, event.matchedGroupLabel.trim().toUpperCase()].join('|');
+}
+
+function googleEventId(event: TimetableEvent, documentType: DocumentType, occurrenceIndex = 0): string {
+  const identity = `${eventIdentity(event, documentType)}|${occurrenceIndex}`;
+  return `tts${crypto.createHash('sha256').update(identity).digest('hex').slice(0, 40)}`;
+}
+
+export function makeCalendarEvent(
+  event: TimetableEvent,
+  documentType: DocumentType,
+  options: SyncOptions = {},
+  occurrenceIndex = 0,
+): { id: string; requestBody: calendar_v3.Schema$Event } {
+  const date = eventDate(event, options.semesterStart);
+  const isAssessment = documentType !== 'class';
+  const assessmentLabel = documentType === 'cat' ? 'CAT' : 'Exam';
+  const requestBody: calendar_v3.Schema$Event = {
+    summary: event.courseUnit,
+    location: event.venue,
+    description: [
+      isAssessment ? `${assessmentLabel} - calendar block starts 1 hour early for arrival.` : 'Weekly class imported by TTS.',
+      `Official time: ${event.startTime}-${event.endTime}`,
+      event.lecturer ? `Lecturer: ${event.lecturer}` : '',
+      `Matched group: ${event.matchedGroupLabel}`,
+      event.ambiguousMatch ? 'Please verify this combined/ambiguous timetable row.' : '',
+    ].filter(Boolean).join('\n'),
+    start: {
+      dateTime: shiftTime(date, event.startTime, isAssessment ? -60 : 0),
+      timeZone: NAIROBI_TIME_ZONE,
+    },
+    end: {
+      dateTime: shiftTime(date, event.endTime, 0),
+      timeZone: NAIROBI_TIME_ZONE,
+    },
+    reminders: {
+      useDefault: false,
+      overrides: reminderMinutes(documentType).map(minutes => ({ method: 'popup', minutes })),
+    },
+    extendedProperties: {
+      private: { ttsManaged: 'true', ttsDocumentType: documentType },
+    },
+    colorId: documentType === 'exam' ? '11' : documentType === 'cat' ? '6' : '10',
+  };
+
+  if (documentType === 'class') {
+    const semesterEnd = options.semesterEnd;
+    if (!semesterEnd) throw new Error('A semester end date is required for weekly classes.');
+    requestBody.recurrence = [`RRULE:FREQ=WEEKLY;UNTIL=${semesterEnd.replace(/-/g, '')}T205959Z`];
+  }
+
+  return { id: googleEventId(event, documentType, occurrenceIndex), requestBody };
+}
 
 export async function syncToGoogleCalendar(
   accessToken: string,
   events: TimetableEvent[],
-  semesterStart: string
+  semesterStart?: string,
+  documentType: DocumentType = 'class',
+  semesterEnd?: string,
 ): Promise<{ success: boolean; eventIds: string[] }> {
-  
   const oauth2Client = new google.auth.OAuth2();
   oauth2Client.setCredentials({ access_token: accessToken });
-  
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-  
   const eventIds: string[] = [];
-  const semesterEnd = new Date(semesterStart);
-  semesterEnd.setMonth(semesterEnd.getMonth() + 4);
-  
-  const dayMap: Record<string, string> = {
-    'Monday': 'MO',
-    'Tuesday': 'TU',
-    'Wednesday': 'WE',
-    'Thursday': 'TH',
-    'Friday': 'FR',
-  };
-  
+  const occurrenceCounts = new Map<string, number>();
+
   for (const event of events) {
+    const identity = eventIdentity(event, documentType);
+    const occurrenceIndex = occurrenceCounts.get(identity) || 0;
+    occurrenceCounts.set(identity, occurrenceIndex + 1);
+    const calendarEvent = makeCalendarEvent(event, documentType, { semesterStart, semesterEnd }, occurrenceIndex);
     try {
-      const startDate = new Date(semesterStart);
-      const dayNum = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].indexOf(event.day);
-      const daysDiff = (dayNum - startDate.getDay() + 7) % 7;
-      startDate.setDate(startDate.getDate() + daysDiff);
-      
-      const [startHour, startMin] = event.startTime.split(':').map(Number);
-      const [endHour, endMin] = event.endTime.split(':').map(Number);
-      
-      startDate.setHours(startHour, startMin, 0, 0);
-      const endDate = new Date(startDate);
-      endDate.setHours(endHour, endMin, 0, 0);
-      
       const response = await calendar.events.insert({
         calendarId: 'primary',
-        requestBody: {
-          summary: `${event.courseCode}: ${event.subject}`,
-          location: event.venue,
-          description: `Lecturer: ${event.lecturer || 'TBA'}\nCourse: ${event.courseCode}`,
-          start: {
-            dateTime: startDate.toISOString(),
-            timeZone: 'Africa/Nairobi',
-          },
-          end: {
-            dateTime: endDate.toISOString(),
-            timeZone: 'Africa/Nairobi',
-          },
-          recurrence: [
-            `RRULE:FREQ=WEEKLY;UNTIL=${semesterEnd.toISOString().split('T')[0].replace(/-/g, '')};BYDAY=${dayMap[event.day]}`
-          ],
-          reminders: {
-            useDefault: false,
-            overrides: [
-              { method: 'popup', minutes: 30 },
-              { method: 'notification', minutes: 30 },
-            ],
-          },
-          colorId: '10',
-        },
+        requestBody: { id: calendarEvent.id, ...calendarEvent.requestBody },
       });
-      
-      eventIds.push(response.data.id!);
-      
+      eventIds.push(response.data.id || calendarEvent.id);
     } catch (error) {
-      console.error(`Failed to create event for ${event.courseCode}:`, error);
-      throw error;
+      const status = (error as { code?: number; response?: { status?: number } }).code
+        || (error as { response?: { status?: number } }).response?.status;
+      if (status !== 409) throw error;
+      const response = await calendar.events.update({
+        calendarId: 'primary',
+        eventId: calendarEvent.id,
+        requestBody: calendarEvent.requestBody,
+      });
+      eventIds.push(response.data.id || calendarEvent.id);
     }
   }
-  
   return { success: true, eventIds };
 }
 
 export async function updateGoogleCalendarEvents(
   accessToken: string,
   oldEvents: TimetableEvent[],
-  newEvents: TimetableEvent[]
+  newEvents: TimetableEvent[],
 ): Promise<void> {
-  
   const oauth2Client = new google.auth.OAuth2();
   oauth2Client.setCredentials({ access_token: accessToken });
-  
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-  
-  const toDelete = oldEvents.filter(
-    old => !newEvents.find(n => n.courseCode === old.courseCode)
-  );
-  
-  for (const event of toDelete) {
-    if (event.googleEventId) {
-      try {
-        await calendar.events.delete({
-          calendarId: 'primary',
-          eventId: event.googleEventId,
-        });
-      } catch (error) {
-        console.error(`Failed to delete event ${event.googleEventId}:`, error);
-      }
+  const currentIds = new Set(newEvents.map(event => event.googleEventId).filter(Boolean));
+  for (const event of oldEvents) {
+    if (event.googleEventId && !currentIds.has(event.googleEventId)) {
+      await calendar.events.delete({ calendarId: 'primary', eventId: event.googleEventId });
     }
   }
 }
