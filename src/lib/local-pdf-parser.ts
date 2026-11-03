@@ -17,7 +17,7 @@ function convertTime(hourText: string, minute: string, meridiem: string): string
 }
 
 function targetParts(groupCode: string): { base: string; subgroup: string | null } | null {
-  const match = groupCode.match(/^([A-Z]+\s+\d+\.\d+)(?:\s+([A-Z]))?$/i);
+  const match = groupCode.match(/^([A-Z]+\s+\d+\.\d+)(?:\s*([A-Z]))?$/i);
   return match ? { base: match[1].replace(/\s+/g, ' ').toUpperCase(), subgroup: match[2]?.toUpperCase() || null } : null;
 }
 

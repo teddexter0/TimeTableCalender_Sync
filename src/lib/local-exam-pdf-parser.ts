@@ -5,7 +5,7 @@ const MONTHS: Record<string, string> = {
   january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',
   july: '07', august: '08', september: '09', october: '10', november: '11', december: '12',
 };
-const DATE = /(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*,?\s*(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})/i;
+const DATE = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*,?\s*(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})/i;
 const TIME = /^(\d{1,2})[.:](\d{2})\s*-\s*(\d{1,2})[.:](\d{2})\s+(.+)$/;
 const COURSE_START = /^([A-Z]{2,6}\s*\d{3,5}[A-Z]?\s*:\s*.+)$/i;
 const GROUP_START = /\s+(?=(?:BBIT|BICS|BCOM|BCNS|CNS|SDS)\b)/i;
@@ -61,7 +61,9 @@ export async function parseEndSemesterExamPdf(
   }
   const fullText = pages.map(page => page.text).join('\n');
   if (!/END OF SEMESTER EXAMINATIONS TIMETABLE/i.test(fullText)) return null;
-  if (!/DATE\s+TIME\s+EXAMINATION\s+GROUP\s+NO\s+VENUE\s+CHIEF/i.test(fullText.replace(/\r?\n/g, ' '))) return null;
+  const header = fullText.match(/DATE\s+TIME\s+EXAMINATION\s+GROUP\s+NO\s+(VENUE\s+)?CHIEF\s+INVIGILATOR/i);
+  if (!header) return null;
+  const hasVenueColumn = Boolean(header[1]);
   if (!groupPattern(groupCode) && !groupAliases.length) return null;
 
   const events: TimetableEvent[] = [];
@@ -116,7 +118,7 @@ export async function parseEndSemesterExamPdf(
       const numbers = [...beforeVenue.matchAll(/\b\d{1,3}\b/g)];
       const candidate = numbers.at(-1);
       const matchedGroupLabel = candidate?.index === undefined ? tail : beforeVenue.slice(0, candidate.index).trim();
-      const venue = directVenue || currentVenue;
+      const venue = hasVenueColumn ? directVenue || currentVenue : 'Check exam card';
       if (directVenue) currentVenue = directVenue;
       if (!currentDate || !currentDay || !currentStart || !currentEnd || !currentCourse || !venue) {
         incompleteRows += 1;
@@ -155,7 +157,9 @@ export async function parseEndSemesterExamPdf(
     events,
     warnings: [
       `Found ${targetRows} group rows; ${events.length} matched the semester profile, ${excludedRows} other-unit rows were excluded, and ${incompleteRows} incomplete rows were not imported.`,
-      'Rows whose venue is inherited from a merged venue cell are highlighted. Compare them with the official exam card before syncing.',
+      hasVenueColumn
+        ? 'Rows whose venue is inherited from a merged venue cell are highlighted. Compare them with the official exam card before syncing.'
+        : 'This draft omits venues. Check the official exam card for each room.',
     ],
   };
 }
