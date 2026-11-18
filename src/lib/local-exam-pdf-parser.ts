@@ -5,7 +5,7 @@ const MONTHS: Record<string, string> = {
   january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',
   july: '07', august: '08', september: '09', october: '10', november: '11', december: '12',
 };
-const DATE = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*,?\s*(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})/i;
+const DATE = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\s*,?\s*(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\s+(\d{4})\b\.?/i;
 const TIME = /^(\d{1,2})[.:](\d{2})\s*-\s*(\d{1,2})[.:](\d{2})\s+(.+)$/;
 const COURSE_START = /^([A-Z]{2,6}\s*\d{3,5}[A-Z]?\s*:\s*.+)$/i;
 const GROUP_START = /\s+(?=(?:BBIT|BICS|BCOM|BCNS|CNS|SDS)\b)/i;
@@ -61,7 +61,7 @@ export async function parseEndSemesterExamPdf(
   }
   const fullText = pages.map(page => page.text).join('\n');
   if (!/END OF SEMESTER EXAMINATIONS TIMETABLE/i.test(fullText)) return null;
-  const header = fullText.match(/DATE\s+TIME\s+EXAMINATION\s+GROUP\s+NO\s+(VENUE\s+)?CHIEF\s+INVIGILATOR/i);
+  const header = fullText.match(/\bDATE\s+TIME\s+EXAMINATION\s+GROUP\s+NO\s+(VENUE\s+)?(?:CHIEF\s+INVIGILATOR|LECTURER)\b/i);
   if (!header) return null;
   const hasVenueColumn = Boolean(header[1]);
   if (!groupPattern(groupCode) && !groupAliases.length) return null;
@@ -80,13 +80,24 @@ export async function parseEndSemesterExamPdf(
   for (const page of pages) {
     const lines = page.text.split(/\r?\n/).map(line => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
     for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index];
+      let line = lines[index];
       const dateText = lines.slice(index, index + 3).join(' ');
       const date = dateText.match(DATE);
       if (date) {
         currentDay = date[1][0].toUpperCase() + date[1].slice(1).toLowerCase();
         const month = MONTHS[date[3].toLowerCase()];
-        if (month) currentDate = `${date[4]}-${month}-${date[2].padStart(2, '0')}`;
+        currentDate = month ? `${date[4]}-${month}-${date[2].padStart(2, '0')}` : null;
+        currentStart = '';
+        currentEnd = '';
+        currentCourse = '';
+        currentVenue = '';
+        // The final PDF sometimes starts the next exam on the last line of a wrapped date.
+        let dateLength = date[0].length;
+        while (dateLength > line.length) {
+          dateLength -= line.length + 1;
+          line = lines[++index];
+        }
+        line = line.slice(dateLength).trim();
       }
 
       const time = line.match(TIME);
@@ -94,10 +105,10 @@ export async function parseEndSemesterExamPdf(
         currentStart = `${time[1].padStart(2, '0')}:${time[2]}`;
         currentEnd = `${time[3].padStart(2, '0')}:${time[4]}`;
         const rawCourse = time[5].match(COURSE_START)?.[1] || '';
+        currentVenue = '';
         if (rawCourse) {
           const groupIndex = rawCourse.search(GROUP_START);
           currentCourse = normalizeCourse(groupIndex >= 0 ? rawCourse.slice(0, groupIndex) : rawCourse);
-          currentVenue = '';
         }
       }
 
@@ -149,6 +160,8 @@ export async function parseEndSemesterExamPdf(
     throw new Error('This is a recognized end-of-semester exam timetable, but none of the supplied semester units matched. Check the unit codes and try again.');
   }
   if (!events.length) return null;
+  const matchedCourseNames = new Set(events.map(event => event.courseUnit));
+  const unmatchedCourses = courseReferences.filter(reference => !matchedCourseNames.has(canonicalCourseName(reference)));
   return {
     documentType: 'exam',
     formatId: 'strathmore_end_semester_exam_v1',
@@ -157,6 +170,9 @@ export async function parseEndSemesterExamPdf(
     events,
     warnings: [
       `Found ${targetRows} group rows; ${events.length} matched the semester profile, ${excludedRows} other-unit rows were excluded, and ${incompleteRows} incomplete rows were not imported.`,
+      ...(unmatchedCourses.length ? [
+        `No matching exam row for ${unmatchedCourses.map(canonicalCourseName).join('; ')}. Check the course codes and add any separate group labels from the PDF to your semester profile.`,
+      ] : []),
       hasVenueColumn
         ? 'Rows whose venue is inherited from a merged venue cell are highlighted. Compare them with the official exam card before syncing.'
         : 'This draft omits venues. Check the official exam card for each room.',
