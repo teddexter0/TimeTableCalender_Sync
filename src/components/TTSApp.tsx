@@ -95,7 +95,10 @@ export default function TTSApp() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [existingCalendarEvents, setExistingCalendarEvents] = useState<ExistingCalendarEvent[]>([]);
   const [calendarCompared, setCalendarCompared] = useState(false);
+  const [calendarNeedsReconnect, setCalendarNeedsReconnect] = useState(false);
   const [error, setError] = useState('');
+  const calendarConnected = Boolean(session?.accessToken && !session.error && !calendarNeedsReconnect);
+  const reconnectLabel = session || calendarNeedsReconnect ? 'Reconnect Google Calendar' : 'Connect Google Calendar';
 
   useEffect(() => {
     try {
@@ -214,6 +217,7 @@ export default function TTSApp() {
       const query = new URLSearchParams(comparisonRange);
       const response = await fetch(`/api/calendar-preview?${query.toString()}`);
       const data = await response.json();
+      if (response.status === 401) setCalendarNeedsReconnect(true);
       if (!response.ok) throw new Error(data.error || 'Calendar comparison failed.');
       setExistingCalendarEvents(Array.isArray(data.events) ? data.events : []);
       setCalendarCompared(true);
@@ -225,7 +229,7 @@ export default function TTSApp() {
   };
 
   const connectCalendar = async () => {
-    persistDraft();
+    if (documentType) persistDraft();
     await signIn('google', { callbackUrl: '/' });
   };
 
@@ -241,6 +245,7 @@ export default function TTSApp() {
         body: JSON.stringify({ events, documentType, semesterStart, semesterEnd, ambiguousConfirmed, syncConfirmed }),
       });
       const data = await response.json();
+      if (response.status === 401) setCalendarNeedsReconnect(true);
       if (!response.ok) throw new Error(data.error || 'Calendar sync failed.');
       localStorage.removeItem(DRAFT_KEY);
       setStep('done');
@@ -279,9 +284,11 @@ export default function TTSApp() {
           </div>
           {session ? (
             <div className="flex flex-wrap items-center gap-2 self-start">
-              <span className="rounded-xl bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-900">
-                Google connected
-              </span>
+              {calendarConnected ? (
+                <span className="rounded-xl bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-900">Google connected</span>
+              ) : (
+                <button type="button" onClick={connectCalendar} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950">{reconnectLabel}</button>
+              )}
               <button type="button" onClick={() => signOut()} className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50">
                 Log out
               </button>
@@ -334,7 +341,7 @@ export default function TTSApp() {
 
             <label className={`mt-8 flex h-56 flex-col items-center justify-center rounded-2xl border-2 border-dashed transition ${loading ? 'cursor-wait border-emerald-300 bg-emerald-50' : 'cursor-pointer border-gray-300 hover:border-emerald-500 hover:bg-emerald-50'}`}>
               <Upload className="mb-4 h-14 w-14 text-emerald-600" />
-              <span className="text-lg font-bold">{loading ? 'Reading every page.' : 'Choose timetable PDF'}</span>
+              <span className="text-lg font-bold">{loading ? 'Reading every page…' : 'Choose timetable PDF'}</span>
               <span className="mt-2 text-sm text-gray-500">PDF only, up to 15 MB</span>
               <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={handleFileUpload} disabled={loading} />
             </label>
@@ -351,7 +358,7 @@ export default function TTSApp() {
                 <div>
                   <div className="flex items-center gap-2 text-emerald-700"><FileCheck2 className="h-5 w-5" /><span className="font-semibold">{typeLabel(documentType)}</span></div>
                   <h2 className="mt-2 text-2xl font-bold">Verify {events.length} matching event{events.length === 1 ? '' : 's'}</h2>
-                  <p className="mt-1 text-gray-600">Format: <strong>{formatLabel}</strong> � Target group: <strong>{groupCode}</strong>. Every field below is editable.</p>
+                  <p className="mt-1 text-gray-600">Format: <strong>{formatLabel}</strong> · Target group: <strong>{groupCode}</strong>. Every field below is editable.</p>
                 </div>
                 <button onClick={() => setStep('upload')} className="self-start text-sm font-semibold text-emerald-700 hover:underline">Upload a different PDF</button>
               </div>
@@ -382,7 +389,7 @@ export default function TTSApp() {
                       <Field label="Official start" value={event.startTime} type="time" onChange={value => updateEvent(index, 'startTime', value)} />
                       <Field label="Official end" value={event.endTime} type="time" onChange={value => updateEvent(index, 'endTime', value)} />
                     </div>
-                    <p className="mt-4 text-sm text-gray-600">Official slot: {event.date || event.day} � {formatTimeRange(event)} � {event.venue}</p>
+                    <p className="mt-4 text-sm text-gray-600">Official slot: {event.date || event.day} · {formatTimeRange(event)} · {event.venue}</p>
                   </article>
                 ))}
               </div>
@@ -391,7 +398,7 @@ export default function TTSApp() {
             <section className="rounded-3xl border border-gray-200 bg-white p-7 shadow-xl sm:p-10">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <div className="flex items-center gap-2 text-blue-700"><Clock3 className="h-5 w-5" /><span className="font-semibold">Safe sandbox - nothing here writes to Google</span></div>
+                  <div className="flex items-center gap-2 text-blue-700"><Clock3 className="h-5 w-5" /><span className="font-semibold">Safe sandbox — nothing here writes to Google</span></div>
                   <h2 className="mt-2 text-2xl font-bold">How this will look in your calendar</h2>
                   <p className="mt-1 text-gray-600">
                     {documentType === 'class'
@@ -399,12 +406,12 @@ export default function TTSApp() {
                       : `${typeLabel(documentType)} blocks from ${comparisonRange.start} to ${comparisonRange.end}, including the one-hour arrival buffer.`}
                   </p>
                 </div>
-                {session ? (
+                {calendarConnected ? (
                   <button onClick={compareCalendar} disabled={calendarLoading} className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800 hover:bg-blue-100 disabled:opacity-50">
-                    {calendarLoading ? 'Reading calendar.' : calendarCompared ? 'Refresh real-calendar overlay' : 'Overlay my real calendar'}
+                    {calendarLoading ? 'Reading calendar…' : calendarCompared ? 'Refresh real-calendar overlay' : 'Overlay my real calendar'}
                   </button>
                 ) : (
-                  <button onClick={connectCalendar} className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800 hover:bg-blue-100">Connect Google for comparison</button>
+                  <button onClick={connectCalendar} className="rounded-xl border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800 hover:bg-blue-100">{reconnectLabel}</button>
                 )}
               </div>
               <SandboxCalendar
@@ -444,11 +451,11 @@ export default function TTSApp() {
 
               {error && <ErrorBox message={error} />}
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
-                {!session ? (
-                  <button onClick={connectCalendar} disabled={status === 'loading'} className="flex-1 rounded-xl bg-emerald-600 px-6 py-4 font-bold text-white hover:bg-emerald-700 disabled:opacity-50">Connect Google Calendar</button>
+                {!calendarConnected ? (
+                  <button onClick={connectCalendar} disabled={status === 'loading'} className="flex-1 rounded-xl bg-emerald-600 px-6 py-4 font-bold text-white hover:bg-emerald-700 disabled:opacity-50">{reconnectLabel}</button>
                 ) : (
                   <button onClick={syncCalendar} disabled={syncing || events.length === 0 || !syncConfirmed || (ambiguousCount > 0 && !ambiguousConfirmed)} className="flex-1 rounded-xl bg-emerald-600 px-6 py-4 font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
-                    {syncing ? 'Syncing.' : `Sync ${events.length} event${events.length === 1 ? '' : 's'} to Google Calendar`}
+                    {syncing ? 'Syncing…' : `Sync ${events.length} event${events.length === 1 ? '' : 's'} to Google Calendar`}
                   </button>
                 )}
               </div>
@@ -517,9 +524,9 @@ function SandboxCalendar({
                         <span className="font-bold text-gray-950">{event.courseUnit}</span>
                         {clashes.length > 0 && <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold uppercase text-white">Clash</span>}
                       </div>
-                      <div className="mt-1 text-sm font-semibold text-gray-700">{displayClock(event.previewStart)}-{displayClock(event.endTime)}</div>
-                      {documentType !== 'class' && <div className="mt-1 text-xs text-gray-600">Official start: {displayClock(event.startTime)}</div>}
-                      <div className="mt-1 text-xs text-gray-600">{event.venue}</div>
+                      <div className="mt-1 text-sm font-semibold text-gray-700">{documentType === 'class' ? '' : 'Official time '}{displayClock(event.startTime)}–{displayClock(event.endTime)}</div>
+                      {documentType !== 'class' && <div className="mt-1 text-xs text-gray-600">Arrival block starts at {displayClock(event.previewStart)}</div>}
+                      <div className="mt-1 text-xs text-gray-600">{event.venue || 'Venue missing from this row'}{event.lecturer ? ` · ${event.lecturer}` : ''}</div>
                       {clashes.map(clash => <div key={clash.id} className="mt-2 rounded bg-white/80 px-2 py-1 text-xs font-semibold text-red-700">Overlaps: {clash.summary}</div>)}
                     </div>
                   );
@@ -528,7 +535,7 @@ function SandboxCalendar({
                   <div key={`existing-${existing.id}`} className="rounded-xl border border-gray-300 bg-white p-3 text-gray-700">
                     <div className="text-xs font-bold uppercase tracking-wide text-gray-400">Already in Google</div>
                     <div className="mt-1 font-semibold">{existing.summary}</div>
-                    <div className="text-xs">{existing.allDay ? 'All day' : `${displayClock(existing.start.slice(11, 16))}-${displayClock(existing.end.slice(11, 16))}`}</div>
+                    <div className="text-xs">{existing.allDay ? 'All day' : `${displayClock(existing.start.slice(11, 16))}–${displayClock(existing.end.slice(11, 16))}`}</div>
                   </div>
                 ))}
                 {calendarCompared && dayExisting.length > 12 && <div className="text-xs font-semibold text-gray-500">+{dayExisting.length - 12} more existing events</div>}

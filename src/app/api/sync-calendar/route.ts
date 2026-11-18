@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions, isGoogleUnauthorized } from '@/lib/auth';
 import { syncToGoogleCalendar } from '@/lib/google-calendar';
 import { DocumentType, TimetableEvent } from '@/types/timetable';
 import { validateEvent, validateIsoDate } from '@/lib/timetable-rules';
@@ -8,11 +8,11 @@ import { validateEvent, validateIsoDate } from '@/lib/timetable-rules';
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
+    if (session?.error) {
+      return NextResponse.json({ error: 'Your Google connection expired. Connect it again.' }, { status: 401 });
+    }
     if (!session?.accessToken) {
       return NextResponse.json({ error: 'Connect Google Calendar before syncing.' }, { status: 401 });
-    }
-    if (session.error) {
-      return NextResponse.json({ error: 'Your Google connection expired. Connect it again.' }, { status: 401 });
     }
 
     const body = await req.json() as {
@@ -57,6 +57,9 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json({ success: result.success, syncedEvents: result.eventIds.length });
   } catch (error) {
+    if (isGoogleUnauthorized(error)) {
+      return NextResponse.json({ error: 'Google rejected the calendar connection. Reconnect before retrying.' }, { status: 401 });
+    }
     console.error('Calendar sync error:', error);
     return NextResponse.json({ error: 'Google Calendar sync failed. Nothing was silently skipped; please try again.' }, { status: 500 });
   }
