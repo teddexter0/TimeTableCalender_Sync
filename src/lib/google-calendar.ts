@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { calendar_v3, google } from 'googleapis';
 import { DocumentType, TimetableEvent } from '@/types/timetable';
+import { calendarGoogleError } from '@/lib/auth';
 import { firstOccurrenceForDay, NAIROBI_TIME_ZONE, reminderMinutes } from '@/lib/timetable-rules';
 
 interface SyncOptions {
@@ -85,37 +86,37 @@ export async function syncToGoogleCalendar(
   semesterStart?: string,
   documentType: DocumentType = 'class',
   semesterEnd?: string,
-): Promise<{ success: boolean; eventIds: string[] }> {
+): Promise<{ success: boolean; eventIds: string[]; eventLink?: string; failure?: ReturnType<typeof calendarGoogleError> }> {
   const oauth2Client = new google.auth.OAuth2();
   oauth2Client.setCredentials({ access_token: accessToken });
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
   const eventIds: string[] = [];
   const occurrenceCounts = new Map<string, number>();
 
-  for (const event of events) {
+  const calendarEvents = events.map(event => {
     const identity = eventIdentity(event, documentType);
     const occurrenceIndex = occurrenceCounts.get(identity) || 0;
     occurrenceCounts.set(identity, occurrenceIndex + 1);
-    const calendarEvent = makeCalendarEvent(event, documentType, { semesterStart, semesterEnd }, occurrenceIndex);
+    return makeCalendarEvent(event, documentType, { semesterStart, semesterEnd }, occurrenceIndex);
+  });
+
+  let eventLink: string | undefined;
+  for (const { id, requestBody } of calendarEvents) {
     try {
       const response = await calendar.events.insert({
         calendarId: 'primary',
-        requestBody: { id: calendarEvent.id, ...calendarEvent.requestBody },
+        requestBody: { id, ...requestBody },
+      }).catch((error: { code?: number; response?: { status?: number } }) => {
+        if ((error.response?.status ?? error.code) !== 409) throw error;
+        return calendar.events.update({ calendarId: 'primary', eventId: id, requestBody });
       });
-      eventIds.push(response.data.id || calendarEvent.id);
+      eventIds.push(response.data.id || id);
+      eventLink ||= response.data.htmlLink ?? undefined;
     } catch (error) {
-      const status = (error as { code?: number; response?: { status?: number } }).code
-        || (error as { response?: { status?: number } }).response?.status;
-      if (status !== 409) throw error;
-      const response = await calendar.events.update({
-        calendarId: 'primary',
-        eventId: calendarEvent.id,
-        requestBody: calendarEvent.requestBody,
-      });
-      eventIds.push(response.data.id || calendarEvent.id);
+      return { success: false, eventIds, failure: calendarGoogleError(error) };
     }
   }
-  return { success: true, eventIds };
+  return { success: true, eventIds, eventLink };
 }
 
 export async function updateGoogleCalendarEvents(

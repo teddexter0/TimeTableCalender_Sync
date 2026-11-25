@@ -1,21 +1,20 @@
-// src/types/next-auth.d.ts
-// 🔥 UPDATED: Added refreshToken and expiresAt
+import 'next-auth';
+import 'next-auth/jwt';
 
-import NextAuth from "next-auth";
-
-declare module "next-auth" {
+declare module 'next-auth' {
   interface Session {
     accessToken?: string;
-    expiresAt?: number;
-    error?: "RefreshAccessTokenError";
+    calendarAccess?: boolean;
+    error?: 'RefreshAccessTokenError';
   }
 }
 
-declare module "next-auth/jwt" {
+declare module 'next-auth/jwt' {
   interface JWT {
     accessToken?: string;
-    refreshToken?: string;  // ← NEW
-    expiresAt?: number;     // ← NEW
-    error?: "RefreshAccessTokenError";
+    refreshToken?: string;
+    expiresAt?: number;
+    calendarAccess?: boolean;
+    error?: 'RefreshAccessTokenError';
   }
 }

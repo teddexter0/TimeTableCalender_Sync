@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions, isGoogleUnauthorized } from '@/lib/auth';
+import { calendarAuthOptions, calendarConnectionError, calendarGoogleError } from '@/lib/auth';
 import { syncToGoogleCalendar } from '@/lib/google-calendar';
 import { DocumentType, TimetableEvent } from '@/types/timetable';
 import { validateEvent, validateIsoDate } from '@/lib/timetable-rules';
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (session?.error) {
-      return NextResponse.json({ error: 'Your Google connection expired. Connect it again.' }, { status: 401 });
-    }
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: 'Connect Google Calendar before syncing.' }, { status: 401 });
+    const session = await getServerSession(calendarAuthOptions);
+    if (!session?.accessToken || session.error || session.calendarAccess === false) {
+      return NextResponse.json({ error: calendarConnectionError(session) || 'Connect Google Calendar first.' }, { status: 401 });
     }
 
     const body = await req.json() as {
@@ -22,6 +19,7 @@ export async function POST(req: NextRequest) {
       semesterEnd?: string;
       ambiguousConfirmed?: boolean;
       syncConfirmed?: boolean;
+      calendarAccount?: string;
     };
     if (body.documentType !== 'class' && body.documentType !== 'cat' && body.documentType !== 'exam') {
       return NextResponse.json({ error: 'Invalid timetable type.' }, { status: 400 });
@@ -48,6 +46,10 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (body.calendarAccount && body.calendarAccount !== session.user?.email) {
+      return NextResponse.json({ error: 'The connected account changed. Reload TTS and confirm the destination before syncing again.' }, { status: 409 });
+    }
+
     const result = await syncToGoogleCalendar(
       session.accessToken,
       body.events,
@@ -55,12 +57,24 @@ export async function POST(req: NextRequest) {
       body.documentType,
       body.semesterEnd,
     );
-    return NextResponse.json({ success: result.success, syncedEvents: result.eventIds.length });
-  } catch (error) {
-    if (isGoogleUnauthorized(error)) {
-      return NextResponse.json({ error: 'Google rejected the calendar connection. Reconnect before retrying.' }, { status: 401 });
+    const syncedEvents = result.eventIds.length;
+    if (result.failure) {
+      const { error, status } = result.failure;
+      console.warn('Calendar sync failed', { status, syncedEvents });
+      const progress = syncedEvents > 0
+        ? `Google confirmed ${syncedEvents} of ${body.events.length} events. `
+        : '';
+      return NextResponse.json({ error: progress + error, syncedEvents }, { status });
     }
-    console.error('Calendar sync error:', error);
-    return NextResponse.json({ error: 'Google Calendar sync failed. Nothing was silently skipped; please try again.' }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      syncedEvents,
+      calendarAccount: session.user?.email,
+      eventLink: result.eventLink,
+    });
+  } catch (error) {
+    const failure = calendarGoogleError(error);
+    console.warn('Calendar sync failed', { status: failure.status });
+    return NextResponse.json({ error: failure.error }, { status: failure.status });
   }
 }

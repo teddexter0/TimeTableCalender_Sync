@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import React, { useEffect, useMemo, useState } from 'react';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { AlertCircle, Calendar, CheckCircle, Clock3, FileCheck2, ShieldAlert, Upload } from 'lucide-react';
@@ -97,7 +98,10 @@ export default function TTSApp() {
   const [calendarCompared, setCalendarCompared] = useState(false);
   const [calendarNeedsReconnect, setCalendarNeedsReconnect] = useState(false);
   const [error, setError] = useState('');
-  const calendarConnected = Boolean(session?.accessToken && !session.error && !calendarNeedsReconnect);
+  const [syncResult, setSyncResult] = useState<{ syncedEvents: number; calendarAccount?: string; eventLink?: string }>();
+  const calendarConnected = Boolean(session?.calendarAccess && !calendarNeedsReconnect);
+  const calendarAccount = session?.user?.email;
+  const calendarAccessMissing = Boolean(session && !session.calendarAccess && !session.error);
   const reconnectLabel = session || calendarNeedsReconnect ? 'Reconnect Google Calendar' : 'Connect Google Calendar';
 
   useEffect(() => {
@@ -229,24 +233,30 @@ export default function TTSApp() {
   };
 
   const connectCalendar = async () => {
-    if (documentType) persistDraft();
-    await signIn('google', { callbackUrl: '/' });
+    setError('');
+    try {
+      if (documentType) persistDraft();
+      await signIn('google', { callbackUrl: '/' });
+    } catch {
+      setError('Could not start Google sign-in. Try again.');
+    }
   };
 
   const syncCalendar = async () => {
-    if (!documentType) return;
+    if (!documentType || !calendarConnected) return;
     setSyncing(true);
     setError('');
-    persistDraft();
     try {
+      persistDraft();
       const response = await fetch('/api/sync-calendar', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ events, documentType, semesterStart, semesterEnd, ambiguousConfirmed, syncConfirmed }),
+        body: JSON.stringify({ events, documentType, semesterStart, semesterEnd, ambiguousConfirmed, syncConfirmed, calendarAccount }),
       });
       const data = await response.json();
       if (response.status === 401) setCalendarNeedsReconnect(true);
-      if (!response.ok) throw new Error(data.error || 'Calendar sync failed.');
+      if (!response.ok || !data.success || data.syncedEvents !== events.length) throw new Error(data.error || 'Calendar sync failed.');
+      setSyncResult(data);
       localStorage.removeItem(DRAFT_KEY);
       setStep('done');
     } catch (err) {
@@ -256,16 +266,19 @@ export default function TTSApp() {
     }
   };
 
-  if (step === 'done') {
+  if (step === 'done' && syncResult) {
     return (
       <main className="min-h-screen bg-emerald-50 px-6 py-16">
         <section className="mx-auto max-w-xl rounded-3xl border border-emerald-200 bg-white p-10 text-center shadow-xl">
           <CheckCircle className="mx-auto mb-5 h-16 w-16 text-emerald-600" />
           <h1 className="text-3xl font-bold text-gray-900">Calendar synced</h1>
-          <p className="mt-3 text-gray-600">{events.length} verified event{events.length === 1 ? '' : 's'} added to your primary Google Calendar.</p>
-          <button onClick={() => { setStep('upload'); setEvents([]); setDocumentType(null); }} className="mt-8 rounded-xl bg-emerald-600 px-6 py-3 font-semibold text-white hover:bg-emerald-700">
-            Process another timetable
-          </button>
+          <p className="mt-3 text-gray-600">{syncResult.syncedEvents} event{syncResult.syncedEvents === 1 ? '' : 's'} saved to {syncResult.calendarAccount ? `the primary calendar for ${syncResult.calendarAccount}` : 'your primary Google Calendar'}.</p>
+          <div className="mt-8 flex flex-wrap justify-center gap-3">
+            {syncResult.eventLink && <a href={syncResult.eventLink} target="_blank" rel="noreferrer" className="rounded-xl bg-emerald-600 px-6 py-3 font-semibold text-white hover:bg-emerald-700">Open synced event</a>}
+            <button onClick={() => { setStep('upload'); setEvents([]); setDocumentType(null); setSyncResult(undefined); }} className="rounded-xl border border-emerald-600 px-6 py-3 font-semibold text-emerald-800 hover:bg-emerald-50">
+              Process another timetable
+            </button>
+          </div>
         </section>
       </main>
     );
@@ -285,7 +298,10 @@ export default function TTSApp() {
           {session ? (
             <div className="flex flex-wrap items-center gap-2 self-start">
               {calendarConnected ? (
-                <span className="rounded-xl bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-900">Google connected</span>
+                <>
+                  <span className="rounded-xl bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-900">{calendarAccount || 'Google Calendar connected'}</span>
+                  <button type="button" onClick={connectCalendar} disabled={syncing} className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-gray-50 disabled:opacity-50">Switch Google account</button>
+                </>
               ) : (
                 <button type="button" onClick={connectCalendar} className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-950">{reconnectLabel}</button>
               )}
@@ -294,11 +310,16 @@ export default function TTSApp() {
               </button>
             </div>
           ) : (
-            <button onClick={() => signIn('google')} className="self-start rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
+            <button onClick={connectCalendar} disabled={status === 'loading'} className="self-start rounded-xl border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50">
               Connect Google Calendar
             </button>
           )}
         </header>
+        {!calendarConnected && <p className="text-sm text-gray-600">
+          {calendarAccessMissing
+            ? 'Reconnect and select Calendar access to sync this timetable.'
+            : 'Connect the Google account where you want your timetable. TTS uses Calendar access to compare events and sync after you confirm.'}
+        </p>}
 
         {step === 'upload' && (
           <section className="rounded-3xl border border-gray-200 bg-white p-7 shadow-xl sm:p-10">
@@ -444,10 +465,10 @@ export default function TTSApp() {
                 </label>
               )}
 
-              <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+              {calendarConnected && <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                 <input type="checkbox" checked={syncConfirmed} onChange={event => setSyncConfirmed(event.target.checked)} className="mt-1 h-4 w-4 accent-emerald-600" />
-                <span className="text-sm text-emerald-950">I consent to sync these {events.length} reviewed events to my primary Google Calendar now.</span>
-              </label>
+                <span className="text-sm text-emerald-950">Sync {events.length} reviewed event{events.length === 1 ? '' : 's'} to {calendarAccount ? `the primary calendar for ${calendarAccount}` : 'my primary Google Calendar'} now.</span>
+              </label>}
 
               {error && <ErrorBox message={error} />}
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -462,6 +483,10 @@ export default function TTSApp() {
             </section>
           </>
         )}
+        <footer className="flex gap-4 text-sm text-gray-600">
+          <Link className="underline hover:text-emerald-800" href="/privacy">Privacy policy</Link>
+          <Link className="underline hover:text-emerald-800" href="/terms">Terms of service</Link>
+        </footer>
       </div>
     </main>
   );

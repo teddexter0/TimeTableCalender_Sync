@@ -1,19 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { google } from 'googleapis';
-import { authOptions, isGoogleUnauthorized } from '@/lib/auth';
+import { calendarAuthOptions, calendarConnectionError, calendarGoogleError } from '@/lib/auth';
 import { NAIROBI_TIME_ZONE, validateIsoDate } from '@/lib/timetable-rules';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getServerSession(authOptions);
-    if (session?.error) {
-      return NextResponse.json({ error: 'Your Google connection expired. Connect it again.' }, { status: 401 });
-    }
-    if (!session?.accessToken) {
-      return NextResponse.json({ error: 'Connect Google Calendar to compare your existing schedule.' }, { status: 401 });
+    const session = await getServerSession(calendarAuthOptions);
+    if (!session?.accessToken || session.error || session.calendarAccess === false) {
+      return NextResponse.json({ error: calendarConnectionError(session) || 'Connect Google Calendar first.' }, { status: 401 });
     }
 
     const start = req.nextUrl.searchParams.get('start') || '';
@@ -45,10 +42,8 @@ export async function GET(req: NextRequest) {
     }));
     return NextResponse.json({ events, range: { start, end } });
   } catch (error) {
-    if (isGoogleUnauthorized(error)) {
-      return NextResponse.json({ error: 'Google rejected the calendar connection. Reconnect to compare your schedule.' }, { status: 401 });
-    }
-    console.error('Calendar preview error:', error);
-    return NextResponse.json({ error: 'Could not read your calendar comparison. Nothing was changed.' }, { status: 500 });
+    const failure = calendarGoogleError(error);
+    console.warn('Calendar preview failed', { status: failure.status });
+    return NextResponse.json({ error: failure.error }, { status: failure.status });
   }
 }
